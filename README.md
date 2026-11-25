@@ -16,7 +16,7 @@ The API is documented in [docs/API.md](docs/API.md).
 
 ## Installing
 
-1. **Upload the files.** Download a release zip, or build one with `tools/build-release.sh`, and upload the `pikarelay` folder to your web host. It can be the site root or a sub-folder such as `/relay`.
+1. **Upload the files.** Download a release zip (attached to each GitHub release), or build one with `tools/build-release.sh`, and upload the `pikarelay` folder to your web host. It can be the site root or a sub-folder such as `/relay`.
 2. **Make two folders writable by PHP:**
    - `config/`, where setup writes `config/config.php`
    - `data/`, but only if you keep the SQLite database there
@@ -80,8 +80,10 @@ vendor/bin/phpunit --filter testCommandLifecycle
 tools/lint.sh               # php -l on every file + PHPCompatibility for PHP 7.4-8.4
 tools/smoke.sh              # end-to-end over HTTP with PHP's built-in server
 php -S 127.0.0.1:8080 index.php   # run locally (setup writes config/config.php)
-tools/build-release.sh      # build/pikarelay-<version>.zip from HEAD
+tools/build-release.sh      # build/pikarelay-<version>.zip from HEAD (version = tag, minus a leading v)
 ```
+
+Publishing a GitHub release runs `.github/workflows/release.yml`, which builds the zip from the release tag and attaches it to the release. The zip carries the version in `src/VERSION`, and the Admin page shows it at the bottom (`dev` when running from a git checkout).
 
 To run the PHPUnit suite against MySQL or MariaDB instead of SQLite, set these environment variables. **Every table in that database is dropped.**
 

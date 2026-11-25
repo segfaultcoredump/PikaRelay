@@ -1,0 +1,40 @@
+# Builds the release zip with tools/build-release.sh when a GitHub release is published,
+# and attaches it to that release. Tag v1.2.0 -> pikarelay-1.2.0.zip, shown as 1.2.0 on the Admin page.
+name: Release zip
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full ref, so a branch with the same name as the tag (e.g. v1.0) is never picked instead.
+          ref: refs/tags/${{ github.event.release.tag_name }}
+
+      - name: Build zip
+        id: build
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: echo "zip=$(sh tools/build-release.sh "$TAG")" >> "$GITHUB_OUTPUT"
+
+      - name: Check version stamp
+        env:
+          ZIP: ${{ steps.build.outputs.zip }}
+        run: |
+          test -f "$ZIP"
+          echo "src/VERSION = $(unzip -p "$ZIP" pikarelay/src/VERSION)"
+          unzip -p "$ZIP" pikarelay/index.php > /dev/null
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          ZIP: ${{ steps.build.outputs.zip }}
+        run: gh release upload "$TAG" "$ZIP" --clobber

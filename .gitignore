@@ -10,3 +10,4 @@ nbproject/private/
 /data/*.db
 /.phpunit.result.cache
 /.phpunit.cache/
+/src/VERSION

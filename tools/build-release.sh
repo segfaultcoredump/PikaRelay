@@ -22,6 +22,11 @@ if [ -n "$(git status --porcelain)" ]; then
     echo "Warning: uncommitted changes are NOT included; the zip is built from HEAD." >&2
 fi
 VERSION="${1:-$(git describe --tags --always)}"
+# Tag v1.2.0 -> version 1.2.0.
+VERSION="${VERSION#v}"
 mkdir -p build
-git archive --format=zip --prefix=pikarelay/ -o "build/pikarelay-$VERSION.zip" HEAD
+# The version is stamped into src/VERSION (read by PikaRelay\Version and shown on the Admin page).
+# --add-virtual-file comes before --prefix and carries the full path: older git ignores --prefix for it,
+# newer git applies only a --prefix given before it, so this gives pikarelay/src/VERSION with both.
+git archive --format=zip --add-virtual-file="pikarelay/src/VERSION:$VERSION" --prefix=pikarelay/ -o "build/pikarelay-$VERSION.zip" HEAD
 echo "build/pikarelay-$VERSION.zip"

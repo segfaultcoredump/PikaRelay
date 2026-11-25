@@ -27,10 +27,12 @@ No PHP or Composer is installed system-wide on this machine. Use the copies in `
 .tools/php/php vendor/bin/phpunit --filter testCommandLifecycle
 PHP=.tools/php/php tools/lint.sh                           # php -l + PHPCompatibility (7.4-8.4)
 PHP=.tools/php/php tools/smoke.sh                          # end-to-end over HTTP via php -S
+sh tools/build-release.sh v1.2.0                           # build/pikarelay-1.2.0.zip from HEAD
 ```
 
 - `.tools/php/php` is a static PHP 8.4 build from static-php-cli. There is no PHP 7.4 binary, so 7.4 compatibility is enforced by `phpcs.xml` (PHPCompatibility 10, `testVersion 7.4-8.4`).
 - `composer.json` pins `config.platform.php` to 7.4.33 so that dev dependencies (PHPUnit 9.6) still install for 7.4.
+- Release zips get `src/VERSION` (the tag minus a leading `v`) from `build-release.sh`. `PikaRelay\Version` reads it for the Admin page and falls back to `dev`. Publishing a GitHub release runs `.github/workflows/release.yml`, which builds and attaches the zip.
 
 ## Hard constraints
 

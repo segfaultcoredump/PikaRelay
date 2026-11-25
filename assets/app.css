@@ -100,6 +100,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 16px 3rem; }
 .heading-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 1rem; }
 .muted { color: var(--muted); }
 .small { font-size: 0.85em; }
+.version { text-align: center; margin-top: 2rem; }
 .notice { background: var(--warn-bg); color: var(--warn-text); padding: 0.6rem 0.8rem; border-radius: 6px; }
 .error { background: var(--error-bg); color: var(--error-text); padding: 0.6rem 0.8rem; border-radius: 6px; }
 

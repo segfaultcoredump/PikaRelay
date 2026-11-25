@@ -10,3 +10,4 @@
 /.gitattributes   export-ignore
 /CLAUDE.md        export-ignore
 /project.md       export-ignore
+/.github          export-ignore

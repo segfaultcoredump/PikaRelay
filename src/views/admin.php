@@ -28,6 +28,7 @@
  * @var int      $oldCommands
  * @var string   $suggestedKey
  * @var string   $suggestedSecret
+ * @var string   $version
  * @var string   $csrf
  * @var callable $e
  * @var callable $url
@@ -175,3 +176,5 @@
     <button type="submit">Remove old commands</button>
   </form>
 </section>
+
+<p class="version muted small">PikaRelay <?= $e($version) ?></p>

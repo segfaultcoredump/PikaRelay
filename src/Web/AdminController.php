@@ -32,6 +32,7 @@ use PikaRelay\Http\Request;
 use PikaRelay\Http\Response;
 use PikaRelay\Http\Router;
 use PikaRelay\Http\Validator;
+use PikaRelay\Version;
 use Throwable;
 
 /**
@@ -225,6 +226,7 @@ final class AdminController
         }
         return $this->page('admin', 'Admin', [
             'now' => $now,
+            'version' => Version::current(),
             'secure' => $this->config->isSecure(),
             'https' => $this->request->isHttps(),
             'settings' => [

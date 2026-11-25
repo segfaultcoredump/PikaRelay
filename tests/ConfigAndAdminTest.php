@@ -24,6 +24,7 @@ namespace PikaRelay\Tests;
 use PikaRelay\Auth\AdminAuth;
 use PikaRelay\Config;
 use PikaRelay\Http\Request;
+use PikaRelay\Version;
 use RuntimeException;
 
 final class ConfigAndAdminTest extends AppTestCase
@@ -136,6 +137,13 @@ final class ConfigAndAdminTest extends AppTestCase
 
         $put = $this->call('PUT', '/readerStatus/pr4-01', ['a' => 1], null, ['X-Pika-Key' => 'abcd', 'X-Pika-Secret' => 'wxyz']);
         self::assertSame(204, $put->status());
+    }
+
+    public function testAdminPageShowsVersion(): void
+    {
+        $this->adminAuth()->login('admin', 'correct horse');
+        $body = $this->call('GET', '/admin')->body();
+        self::assertStringContainsString('PikaRelay ' . Version::current() . '</p>', $body);
     }
 
     private function adminAuth(): AdminAuth
