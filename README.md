@@ -61,6 +61,18 @@ PikaRelay reads its config from the path in the `PIKA_CONFIG` environment variab
   - purge reads older than N days, and remove acknowledged or expired commands
 - **Password:** change the admin user name and password.
 
+### Updating
+
+The **Software update** card on the Admin page shows the installed version and checks [GitHub](https://github.com/PikaTimer/PikaRelay/releases) for a newer release. It checks at most every 12 hours; use **Check for updates** to check now. From the card you can:
+
+- **Update to x.y.z:** download the release's `pikarelay-x.y.z.zip` from GitHub and install it. GitHub's SHA-256 checksum is verified when GitHub provides one.
+- **Upload and install:** install a `pikarelay-x.y.z.zip` you downloaded yourself. Use the zip attached to the release, not GitHub's "Source code" zip.
+- **Restore:** put back the code from one of the last 3 automatic backups.
+
+Every update first backs up the current code to `data/backups/`, or to `backups/` in the config folder if `data/` is not writable. `config/config.php` and your data are never touched.
+
+Self-update needs PHP to be able to write to the install folder, `src/` and `assets/`, and needs PHP's zip extension. Checking GitHub also needs the curl extension, or `allow_url_fopen` with openssl. When the host does not allow this, the card says so. In that case, update manually: download the release zip, then upload the contents of its `pikarelay` folder over the installation, keeping `config/config.php` and `data/`.
+
 ### Forgotten admin password
 
 1. Edit `config/config.php` and set `'admin_hash' => ''`.

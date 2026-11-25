@@ -56,9 +56,13 @@ final class Request
     /** @var string */
     private $ip;
 
+    /** @var array<string, array{tmp_name: string, name: string, size: int, error: int}> */
+    private $files;
+
     /**
      * @param array<string, string> $headers
      * @param array<string, mixed>  $form
+     * @param array<string, array{tmp_name: string, name: string, size: int, error: int}> $files uploaded files
      */
     public function __construct(
         string $method,
@@ -69,7 +73,8 @@ final class Request
         string $prefix = '',
         string $basePath = '',
         bool $https = false,
-        string $ip = '127.0.0.1'
+        string $ip = '127.0.0.1',
+        array $files = []
     ) {
         $this->method = strtoupper($method);
         $this->path = $path === '' ? '/' : $path;
@@ -84,6 +89,7 @@ final class Request
         $this->basePath = $basePath;
         $this->https = $https;
         $this->ip = $ip;
+        $this->files = $files;
     }
 
     public static function fromGlobals(): Request
@@ -136,7 +142,8 @@ final class Request
             $prefix,
             $base,
             $https,
-            isset($server['REMOTE_ADDR']) ? (string) $server['REMOTE_ADDR'] : ''
+            isset($server['REMOTE_ADDR']) ? (string) $server['REMOTE_ADDR'] : '',
+            self::uploadedFiles($_FILES)
         );
         $request->bodyFromInput = true;
         return $request;
@@ -208,6 +215,44 @@ final class Request
     {
         $value = $this->form[$name] ?? '';
         return is_string($value) ? $value : '';
+    }
+
+    /**
+     * A single uploaded file field: tmp_name, name, size and error (an UPLOAD_ERR_* code),
+     * or null when the field was not sent.
+     *
+     * @return array{tmp_name: string, name: string, size: int, error: int}|null
+     */
+    public function file(string $name): ?array
+    {
+        return $this->files[$name] ?? null;
+    }
+
+    /**
+     * Single-file uploads from $_FILES. A file reported as received must really be an upload.
+     *
+     * @param array<mixed> $files
+     * @return array<string, array{tmp_name: string, name: string, size: int, error: int}>
+     */
+    private static function uploadedFiles(array $files): array
+    {
+        $result = [];
+        foreach ($files as $field => $file) {
+            if (!is_array($file) || !isset($file['error']) || !is_int($file['error'])) {
+                continue;
+            }
+            $tmp = isset($file['tmp_name']) && is_string($file['tmp_name']) ? $file['tmp_name'] : '';
+            if ($file['error'] === UPLOAD_ERR_OK && ($tmp === '' || !is_uploaded_file($tmp))) {
+                continue;
+            }
+            $result[(string) $field] = [
+                'tmp_name' => $tmp,
+                'name' => isset($file['name']) && is_string($file['name']) ? $file['name'] : '',
+                'size' => isset($file['size']) ? (int) $file['size'] : 0,
+                'error' => $file['error'],
+            ];
+        }
+        return $result;
     }
 
     public function hasForm(string $name): bool

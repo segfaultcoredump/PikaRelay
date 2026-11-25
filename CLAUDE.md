@@ -91,6 +91,14 @@ sh tools/build-release.sh v1.2.0                           # build/pikarelay-1.2
 
 **Web UI** (`Web/AdminController`, `Web/View`, `src/views/*.php`). Server-rendered templates inside `layout.php`. `View` provides the helpers `$e`, `$url`, `$asset`, `$time` and `$ago`.
 
+**Self-update** (`src/Update/`).
+- `GitHubReleases` (behind the `ReleaseSource` interface) reads the latest upstream release and its `pikarelay-<ver>.zip` asset. `UpdateChecker` caches the result in the `meta` table.
+- `Package` validates a release zip: everything under `pikarelay/`, safe relative paths, no symlinks, size and entry limits, and a valid `src/VERSION`.
+- `Installer` runs these steps in order: lock, pre-flight writability check, backup zip, stage `.pikanew-*` files, rename them over the live files (`index.php` last), then prune obsolete files in `src/` and `assets/`.
+- It never writes `config/config.php` or anything in `config/` and `data/` except the shipped `.htaccess`, `index.html` and `probe.txt` (`Installer::isProtected`).
+- `problems()` lists the reasons self-update is impossible, including a `.git` folder. So the repo itself always shows the manual-update notice.
+- `AppTestCase` installs a `FakeReleaseSource`, so tests never call GitHub. Point `App::setInstaller` at a temp folder (`tests/ReleaseZip`) to test real installs.
+
 **Tests.** Tests extend `tests/AppTestCase`, which runs `App` in-process with a `FixedClock`, a temp SQLite database, and two keys:
 - `reader-key` / `reader-secret`
 - `client-key` / `client-secret`

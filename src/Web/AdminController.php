@@ -27,12 +27,17 @@ use PikaRelay\Auth\AdminAuth;
 use PikaRelay\Auth\ApiAuth;
 use PikaRelay\Config;
 use PikaRelay\Db\Database;
+use PikaRelay\Db\Schema;
 use PikaRelay\Http\HttpException;
 use PikaRelay\Http\Request;
 use PikaRelay\Http\Response;
 use PikaRelay\Http\Router;
 use PikaRelay\Http\Validator;
+use PikaRelay\Update\GitHubReleases;
+use PikaRelay\Update\Package;
+use PikaRelay\Update\UpdateChecker;
 use PikaRelay\Version;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -224,9 +229,11 @@ final class AdminController
                 'lastReadMs' => $row['last_read_ms'] === null ? null : (int) $row['last_read_ms'],
             ];
         }
+        Schema::upgrade($db);
         return $this->page('admin', 'Admin', [
             'now' => $now,
             'version' => Version::current(),
+            'update' => $this->updateInfo($now),
             'secure' => $this->config->isSecure(),
             'https' => $this->request->isHttps(),
             'settings' => [
@@ -254,6 +261,12 @@ final class AdminController
     public function adminAction(string $action): Response
     {
         $auth = $this->requireLogin();
+        if ($action === 'uploadUpdate' && $this->postTooLarge()) {
+            // PHP discarded the whole POST (including the CSRF token), so explain instead of failing the CSRF check.
+            AdminAuth::flash('error', 'The file is larger than this server accepts (PHP post_max_size is '
+                . self::formatBytes(self::iniBytes('post_max_size')) . ').');
+            return Response::redirect($this->request->url('/admin'));
+        }
         $auth->checkCsrf();
         $handlers = [
             'settings' => 'saveSettings',
@@ -263,6 +276,10 @@ final class AdminController
             'purgeCommands' => 'purgeCommands',
             'deleteReader' => 'deleteReader',
             'deleteStaleReaders' => 'deleteStaleReaders',
+            'checkUpdate' => 'checkUpdate',
+            'installUpdate' => 'installUpdate',
+            'uploadUpdate' => 'uploadUpdate',
+            'restoreUpdate' => 'restoreUpdate',
         ];
         if (!isset($handlers[$action])) {
             throw new HttpException(404, 'Not found');
@@ -404,6 +421,202 @@ final class AdminController
             }
             return $any;
         });
+    }
+
+    /**
+     * Everything the "Software update" card shows.
+     *
+     * @return array<string, mixed>
+     */
+    private function updateInfo(int $now): array
+    {
+        $source = $this->app->releaseSource();
+        $httpProblem = $source->unavailableReason();
+        $check = $this->updateChecker()->status($now, $httpProblem === null);
+        $current = Version::current();
+        $release = $check['release'];
+        return [
+            'current' => $current,
+            'problems' => $this->app->installer()->problems(),
+            'httpProblem' => $httpProblem,
+            'checkedMs' => $check['checkedMs'],
+            'error' => $check['error'],
+            'release' => $release,
+            'newer' => $release !== null && UpdateChecker::isNewer($release->version, $current),
+            'releasesUrl' => GitHubReleases::RELEASES_URL,
+            'backups' => $this->app->installer()->backups(),
+            'maxUpload' => self::formatBytes(self::maxUploadBytes()),
+        ];
+    }
+
+    private function checkUpdate(): void
+    {
+        $problem = $this->app->releaseSource()->unavailableReason();
+        if ($problem !== null) {
+            AdminAuth::flash('error', $problem);
+            return;
+        }
+        $check = $this->updateChecker()->refresh($this->app->clock()->nowMs());
+        $release = $check['release'];
+        if ($release === null) {
+            AdminAuth::flash('error', (string) $check['error']);
+        } elseif (UpdateChecker::isNewer($release->version, Version::current())) {
+            AdminAuth::flash('ok', 'Version ' . $release->version . ' is available.');
+        } else {
+            AdminAuth::flash('ok', 'PikaRelay is up to date (latest release: ' . $release->version . ').');
+        }
+    }
+
+    private function installUpdate(): void
+    {
+        if (!$this->canInstall()) {
+            return;
+        }
+        $release = $this->updateChecker()->status($this->app->clock()->nowMs(), false)['release'];
+        if ($release === null || !UpdateChecker::isNewer($release->version, Version::current())) {
+            AdminAuth::flash('error', 'No newer release is known. Check for updates first.');
+            return;
+        }
+        if ($release->version !== $this->request->form('version')) {
+            AdminAuth::flash('error', 'The latest release changed while the page was open. Review it and try again.');
+            return;
+        }
+        $tmp = tempnam(sys_get_temp_dir(), 'pikarelay-');
+        if ($tmp === false) {
+            AdminAuth::flash('error', 'Could not create a temporary file for the download.');
+            return;
+        }
+        try {
+            $this->app->releaseSource()->download($release, $tmp);
+            if ($release->sha256 !== null && !hash_equals($release->sha256, (string) hash_file('sha256', $tmp))) {
+                throw new RuntimeException('The downloaded file does not match the checksum published on GitHub. Nothing was changed.');
+            }
+            $package = new Package($tmp);
+            if ($package->version() !== $release->version) {
+                throw new RuntimeException('The downloaded zip is version ' . $package->version() . ', not ' . $release->version . '. Nothing was changed.');
+            }
+            $this->installPackage($package);
+        } catch (RuntimeException $e) {
+            AdminAuth::flash('error', $e->getMessage());
+        } finally {
+            @unlink($tmp);
+        }
+    }
+
+    private function uploadUpdate(): void
+    {
+        if (!$this->canInstall()) {
+            return;
+        }
+        $file = $this->request->file('package');
+        $error = $file === null ? UPLOAD_ERR_NO_FILE : $file['error'];
+        $messages = [
+            UPLOAD_ERR_NO_FILE => 'Choose a release zip to upload.',
+            UPLOAD_ERR_INI_SIZE => 'The file is larger than this server accepts (PHP upload_max_filesize is '
+                . self::formatBytes(self::iniBytes('upload_max_filesize')) . ').',
+            UPLOAD_ERR_FORM_SIZE => 'The file is too large.',
+            UPLOAD_ERR_PARTIAL => 'The file was only partly uploaded. Try again.',
+        ];
+        if ($file === null || $error !== UPLOAD_ERR_OK) {
+            AdminAuth::flash('error', $messages[$error] ?? 'The server could not store the upload (PHP upload error ' . $error . ').');
+            return;
+        }
+        try {
+            $this->installPackage(new Package($file['tmp_name']));
+        } catch (RuntimeException $e) {
+            AdminAuth::flash('error', $e->getMessage());
+        }
+    }
+
+    private function restoreUpdate(): void
+    {
+        if (!$this->canInstall()) {
+            return;
+        }
+        $this->loadPostUpdateClasses();
+        try {
+            $result = $this->app->installer()->restore($this->request->form('backup'));
+            AdminAuth::flash('ok', 'Restored PikaRelay ' . $result['to'] . ' (was ' . $result['from'] . ').');
+        } catch (RuntimeException $e) {
+            AdminAuth::flash('error', $e->getMessage());
+        }
+    }
+
+    private function installPackage(Package $package): void
+    {
+        $this->loadPostUpdateClasses();
+        $result = $this->app->installer()->install($package);
+        AdminAuth::flash('ok', 'Updated PikaRelay from ' . $result['from'] . ' to ' . $result['to'] . '.');
+    }
+
+    private function canInstall(): bool
+    {
+        $problems = $this->app->installer()->problems();
+        if ($problems) {
+            AdminAuth::flash('error', 'This server cannot update PikaRelay automatically: ' . implode(' ', $problems));
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Loads the classes this request still needs after the files are swapped, so it does not
+     * mix old and new code.
+     */
+    private function loadPostUpdateClasses(): void
+    {
+        class_exists(Response::class);
+        class_exists(HttpException::class);
+        class_exists(View::class);
+    }
+
+    private function updateChecker(): UpdateChecker
+    {
+        return new UpdateChecker($this->db(), $this->app->releaseSource());
+    }
+
+    private function postTooLarge(): bool
+    {
+        $length = $this->request->header('content-length');
+        $limit = self::iniBytes('post_max_size');
+        return $limit > 0 && $length !== null && ctype_digit($length) && (int) $length > $limit
+            && !$this->request->hasForm('csrf');
+    }
+
+    private static function maxUploadBytes(): int
+    {
+        $upload = self::iniBytes('upload_max_filesize');
+        $post = self::iniBytes('post_max_size');
+        if ($post <= 0) {
+            return $upload;
+        }
+        return $upload <= 0 ? $post : min($upload, $post);
+    }
+
+    /**
+     * A php.ini size such as "8M" in bytes (0 = unlimited or unset).
+     */
+    private static function iniBytes(string $name): int
+    {
+        $value = trim((string) ini_get($name));
+        if (!preg_match('/^(\d+)\s*([KMG]?)/i', $value, $m)) {
+            return 0;
+        }
+        $bytes = (int) $m[1];
+        $unit = strtoupper($m[2]);
+        $shift = $unit === 'G' ? 30 : ($unit === 'M' ? 20 : ($unit === 'K' ? 10 : 0));
+        return $bytes << $shift;
+    }
+
+    private static function formatBytes(int $bytes): string
+    {
+        if ($bytes <= 0) {
+            return 'unlimited';
+        }
+        if ($bytes >= 1048576) {
+            return round($bytes / 1048576, 1) . ' MB';
+        }
+        return round($bytes / 1024) . ' KB';
     }
 
     private function auth(): AdminAuth

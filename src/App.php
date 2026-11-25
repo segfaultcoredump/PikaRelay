@@ -32,6 +32,10 @@ use PikaRelay\Http\HttpException;
 use PikaRelay\Http\Request;
 use PikaRelay\Http\Response;
 use PikaRelay\Http\Router;
+use PikaRelay\Update\GitHubReleases;
+use PikaRelay\Update\HttpClient;
+use PikaRelay\Update\Installer;
+use PikaRelay\Update\ReleaseSource;
 use PikaRelay\Web\AdminController;
 use PikaRelay\Web\SetupController;
 use PikaRelay\Web\View;
@@ -53,6 +57,12 @@ final class App
 
     /** @var int */
     private $pageLimit;
+
+    /** @var ReleaseSource|null */
+    private $releaseSource;
+
+    /** @var Installer|null */
+    private $installer;
 
     /** @var int */
     private $maxBatch;
@@ -97,6 +107,39 @@ final class App
             $this->db = Database::fromConfig((array) $this->config->get('db'), PIKA_ROOT);
         }
         return $this->db;
+    }
+
+    /**
+     * Where software updates come from (GitHub unless a test substitutes a fake).
+     */
+    public function releaseSource(): ReleaseSource
+    {
+        if ($this->releaseSource === null) {
+            $this->releaseSource = new GitHubReleases(new HttpClient('PikaRelay/' . Version::current()));
+        }
+        return $this->releaseSource;
+    }
+
+    public function setReleaseSource(ReleaseSource $source): void
+    {
+        $this->releaseSource = $source;
+    }
+
+    /**
+     * Installs software updates over this installation.
+     */
+    public function installer(): Installer
+    {
+        if ($this->installer === null) {
+            $configPath = $this->config !== null ? $this->config->path() : Config::defaultPath();
+            $this->installer = new Installer(PIKA_ROOT, dirname($configPath));
+        }
+        return $this->installer;
+    }
+
+    public function setInstaller(Installer $installer): void
+    {
+        $this->installer = $installer;
     }
 
     public function handle(Request $request): Response

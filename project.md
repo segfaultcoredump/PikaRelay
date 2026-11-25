@@ -63,6 +63,7 @@ These were settled while building the first version.
 * **Databases:** SQLite (single file) or MySQL/MariaDB, chosen at setup. All SQL runs on both.
 * **Single entry point:** `index.php`. `src/`, `config/` and `data/` must never be served: `.htaccess` files handle Apache, and `server-configs/` has nginx and lighttpd examples. The Admin page warns if it can download a probe file from those folders.
 * **Releases:** `tools/build-release.sh` builds `build/pikarelay-<version>.zip` from git `HEAD`. `build/` is git-ignored. It stamps the version (the tag without a leading `v`) into `src/VERSION`, which `Version` reads and the Admin page shows. Publishing a GitHub release runs `.github/workflows/release.yml`, which builds the zip and attaches it to the release.
+* **Self-update** (`src/Update/`): the Admin page checks the latest GitHub release (cached 12 h in the `meta` table). It can install that release's zip, an uploaded release zip, or one of the last 3 automatic backups. It never writes `config/config.php` or the data folder, and falls back to manual-update instructions when the files are not writable.
 
 ### Authentication
 * **API credentials** are sent as `X-Pika-Key` and `X-Pika-Secret` headers. Secrets are stored as an HMAC-SHA256 with a per-install `pepper`, never in plain text, and are shown only once at creation.

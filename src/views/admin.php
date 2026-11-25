@@ -29,6 +29,7 @@
  * @var string   $suggestedKey
  * @var string   $suggestedSecret
  * @var string   $version
+ * @var array    $update   see AdminController::updateInfo()
  * @var string   $csrf
  * @var callable $e
  * @var callable $url
@@ -175,6 +176,77 @@
     <span>Remove acknowledged and expired commands</span>
     <button type="submit">Remove old commands</button>
   </form>
+</section>
+
+<section class="card" id="software-update">
+  <h2>Software update</h2>
+  <p>
+    Installed version: <strong><?= $e($update['current']) ?></strong>.
+    <?php if ($update['release'] !== null): ?>
+      Latest release: <strong><?= $e($update['release']->version) ?></strong>
+      (<a href="<?= $e($update['release']->htmlUrl) ?>" rel="noopener noreferrer" target="_blank">release notes</a>)<?php if ($update['checkedMs'] !== null): ?>, checked <?= $e($ago($update['checkedMs'])) ?><?php endif; ?>.
+    <?php elseif ($update['checkedMs'] !== null): ?>
+      <span class="muted">Last check (<?= $e($ago($update['checkedMs'])) ?>): <?= $e($update['error']) ?></span>
+    <?php endif; ?>
+  </p>
+  <?php if ($update['httpProblem'] !== null): ?>
+  <p class="muted"><?= $e($update['httpProblem']) ?> Updates can still be installed by uploading a release zip.</p>
+  <?php else: ?>
+  <form method="post" action="<?= $url('/admin/checkUpdate') ?>" class="row-form">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <button type="submit">Check for updates</button>
+  </form>
+  <?php endif; ?>
+
+  <?php if ($update['problems']): ?>
+  <div class="notice">
+    <p><strong>This server cannot update PikaRelay automatically.</strong></p>
+    <ul>
+      <?php foreach ($update['problems'] as $problem): ?>
+      <li><?= $e($problem) ?></li>
+      <?php endforeach; ?>
+    </ul>
+    <p>To update, you will need to update the PHP scripts manually: download the <code>pikarelay-x.y.z.zip</code> file from the
+      <a href="<?= $e($update['releasesUrl']) ?>" rel="noopener noreferrer" target="_blank">releases page</a>
+      and upload the contents of its <code>pikarelay</code> folder over this installation. Keep your <code>config/config.php</code> and <code>data/</code> folder.</p>
+  </div>
+  <?php else: ?>
+    <?php if ($update['newer']): ?>
+    <form method="post" action="<?= $url('/admin/installUpdate') ?>" class="row-form"
+          data-confirm="Download PikaRelay <?= $e($update['release']->version) ?> from GitHub and install it? The current version is backed up first.">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="version" value="<?= $e($update['release']->version) ?>">
+      <span>Version <?= $e($update['release']->version) ?> is available.</span>
+      <button type="submit">Update to <?= $e($update['release']->version) ?></button>
+    </form>
+    <?php endif; ?>
+    <h3>Install from a file</h3>
+    <form method="post" action="<?= $url('/admin/uploadUpdate') ?>" enctype="multipart/form-data" class="row-form"
+          data-confirm="Install the uploaded release over this installation? The current version is backed up first.">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <label>Release zip (pikarelay-x.y.z.zip, at most <?= $e($update['maxUpload']) ?>)
+        <input type="file" name="package" accept=".zip,application/zip" required>
+      </label>
+      <button type="submit">Upload and install</button>
+    </form>
+    <?php if ($update['backups']): ?>
+    <h3>Backups</h3>
+    <p class="muted">Taken automatically before each update. The newest <?= $e(count($update['backups'])) ?> are kept.</p>
+    <ul class="backups">
+      <?php foreach ($update['backups'] as $b): ?>
+      <li>
+        <form method="post" action="<?= $url('/admin/restoreUpdate') ?>" class="inline"
+              data-confirm="Restore PikaRelay <?= $e($b['version']) ?> from this backup?">
+          <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+          <input type="hidden" name="backup" value="<?= $e($b['file']) ?>">
+          Version <strong><?= $e($b['version']) ?></strong>, backed up <?= $time($b['createdMs']) ?>
+          <button type="submit" class="small">Restore</button>
+        </form>
+      </li>
+      <?php endforeach; ?>
+    </ul>
+    <?php endif; ?>
+  <?php endif; ?>
 </section>
 
 <p class="version muted small">PikaRelay <?= $e($version) ?></p>

@@ -44,6 +44,9 @@ abstract class AppTestCase extends TestCase
     /** @var string */
     protected $dir;
 
+    /** @var FakeReleaseSource stands in for GitHub; tests set ->release */
+    protected $releases;
+
     /** @var FixedClock */
     protected $clock;
 
@@ -85,7 +88,10 @@ abstract class AppTestCase extends TestCase
 
     protected function makeApp(int $pageLimit = 10000, int $maxBatch = 2000): App
     {
-        return new App($this->config, $this->db, $this->clock, $pageLimit, $maxBatch);
+        $app = new App($this->config, $this->db, $this->clock, $pageLimit, $maxBatch);
+        $this->releases = new FakeReleaseSource();
+        $app->setReleaseSource($this->releases);
+        return $app;
     }
 
     protected function addKey(string $key, string $secret, string $role): void

@@ -50,6 +50,22 @@ final class Version
             return self::UNKNOWN;
         }
         $version = trim($raw);
-        return preg_match('/^[0-9A-Za-z._+-]{1,64}$/', $version) ? $version : self::UNKNOWN;
+        return self::isValid($version) ? $version : self::UNKNOWN;
+    }
+
+    /**
+     * True for strings that may be used as a version: 1-64 of [0-9A-Za-z._+-].
+     */
+    public static function isValid(string $version): bool
+    {
+        return preg_match('/^[0-9A-Za-z._+-]{1,64}$/', $version) === 1;
+    }
+
+    /**
+     * A release tag as a version: "v1.2.0" -> "1.2.0".
+     */
+    public static function fromTag(string $tag): string
+    {
+        return ($tag !== '' && ($tag[0] === 'v' || $tag[0] === 'V')) ? substr($tag, 1) : $tag;
     }
 }

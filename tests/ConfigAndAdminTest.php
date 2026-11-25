@@ -24,6 +24,8 @@ namespace PikaRelay\Tests;
 use PikaRelay\Auth\AdminAuth;
 use PikaRelay\Config;
 use PikaRelay\Http\Request;
+use PikaRelay\Http\Response;
+use PikaRelay\Update\Installer;
 use PikaRelay\Version;
 use RuntimeException;
 
@@ -144,6 +146,120 @@ final class ConfigAndAdminTest extends AppTestCase
         $this->adminAuth()->login('admin', 'correct horse');
         $body = $this->call('GET', '/admin')->body();
         self::assertStringContainsString('PikaRelay ' . Version::current() . '</p>', $body);
+    }
+
+    public function testUpdateCardOnGitCheckoutSaysManual(): void
+    {
+        $this->releases->release = FakeReleaseSource::release('9.9.9');
+        $this->adminAuth()->login('admin', 'correct horse');
+        $body = $this->call('GET', '/admin')->body();
+        self::assertStringContainsString('Latest release: <strong>9.9.9</strong>', $body);
+        self::assertStringContainsString('cannot update PikaRelay automatically', $body);
+        self::assertStringContainsString('git checkout', $body);
+        self::assertStringNotContainsString('/admin/uploadUpdate', $body);
+    }
+
+    public function testUpdateCardOffersUpdateUploadAndRestore(): void
+    {
+        $root = $this->fakeInstall();
+        $this->releases->release = FakeReleaseSource::release('1.1.0');
+        $this->adminAuth()->login('admin', 'correct horse');
+        $body = $this->call('GET', '/admin')->body();
+        self::assertStringContainsString('Update to 1.1.0', $body);
+        self::assertStringContainsString('/admin/uploadUpdate', $body);
+        self::assertStringContainsString('enctype="multipart/form-data"', $body);
+        self::assertStringNotContainsString('/admin/restoreUpdate', $body, 'no backups yet');
+
+        // Upload and install 1.2.0.
+        $zip = ReleaseZip::build($this->dir . '/upload.zip', '1.2.0');
+        $response = $this->adminPost('uploadUpdate', [], ['package' => ['tmp_name' => $zip, 'name' => 'pikarelay-1.2.0.zip', 'size' => (int) filesize($zip), 'error' => UPLOAD_ERR_OK]]);
+        self::assertSame(303, $response->status());
+        self::assertSame(['ok', 'Updated PikaRelay from 1.0.0 to 1.2.0.'], self::lastFlash());
+        self::assertSame('1.2.0', file_get_contents($root . '/src/VERSION'));
+
+        // The backup can be restored from the card.
+        $body = $this->call('GET', '/admin')->body();
+        self::assertStringContainsString('/admin/restoreUpdate', $body);
+        $backup = $this->app->installer()->backups()[0]['file'];
+        $this->adminPost('restoreUpdate', ['backup' => $backup]);
+        self::assertSame(['ok', 'Restored PikaRelay 1.0.0 (was 1.2.0).'], self::lastFlash());
+        self::assertSame('1.0.0', file_get_contents($root . '/src/VERSION'));
+    }
+
+    public function testInstallUpdateDownloadsAndChecksDigest(): void
+    {
+        $root = $this->fakeInstall();
+        $zip = ReleaseZip::build($this->dir . '/dl.zip', '1.1.0');
+        $this->releases->zip = $zip;
+        $this->releases->release = FakeReleaseSource::release('1.1.0', str_repeat('0', 64));
+        $this->adminAuth()->login('admin', 'correct horse');
+        $this->call('GET', '/admin');   // runs the update check
+
+        $this->adminPost('installUpdate', ['version' => '1.1.0']);
+        self::assertStringContainsString('does not match the checksum', self::lastFlash()[1]);
+        self::assertSame('1.0.0', file_get_contents($root . '/src/VERSION'));
+
+        $this->releases->release = FakeReleaseSource::release('1.1.0', (string) hash_file('sha256', $zip));
+        $this->adminPost('checkUpdate');
+        $this->adminPost('installUpdate', ['version' => '1.0.9']);
+        self::assertStringContainsString('changed while the page was open', self::lastFlash()[1]);
+        $this->adminPost('installUpdate', ['version' => '1.1.0']);
+        self::assertSame(['ok', 'Updated PikaRelay from 1.0.0 to 1.1.0.'], self::lastFlash());
+        self::assertSame('1.1.0', file_get_contents($root . '/src/VERSION'));
+    }
+
+    public function testUploadErrorsAreExplained(): void
+    {
+        $this->fakeInstall();
+        $this->adminAuth()->login('admin', 'correct horse');
+        $this->adminPost('uploadUpdate');
+        self::assertSame(['error', 'Choose a release zip to upload.'], self::lastFlash());
+
+        $this->adminPost('uploadUpdate', [], ['package' => ['tmp_name' => '', 'name' => 'x.zip', 'size' => 0, 'error' => UPLOAD_ERR_INI_SIZE]]);
+        self::assertStringContainsString('upload_max_filesize', self::lastFlash()[1]);
+
+        file_put_contents($this->dir . '/junk.zip', 'junk');
+        $this->adminPost('uploadUpdate', [], ['package' => ['tmp_name' => $this->dir . '/junk.zip', 'name' => 'junk.zip', 'size' => 4, 'error' => UPLOAD_ERR_OK]]);
+        self::assertSame(['error', 'The file is not a zip archive.'], self::lastFlash());
+    }
+
+    public function testOversizedPostGetsAClearMessage(): void
+    {
+        $this->adminAuth()->login('admin', 'correct horse');
+        $request = new Request('POST', '/admin/uploadUpdate', ['Content-Length' => (string) PHP_INT_MAX], null, []);
+        $response = $this->app->handle($request);
+        self::assertSame(303, $response->status());
+        self::assertStringContainsString('post_max_size', self::lastFlash()[1]);
+    }
+
+    /**
+     * A fake 1.0.0 installation that the app's installer updates instead of this repository.
+     */
+    private function fakeInstall(): string
+    {
+        $root = $this->dir . '/install';
+        ReleaseZip::install($root, '1.0.0', ['config/config.php' => '<?php return [];']);
+        $this->app->setInstaller(new Installer($root, $root . '/config'));
+        return $root;
+    }
+
+    /**
+     * @param array<string, string> $form
+     * @param array<string, array{tmp_name: string, name: string, size: int, error: int}> $files
+     */
+    private function adminPost(string $action, array $form = [], array $files = []): Response
+    {
+        $form += ['csrf' => $this->adminAuth()->csrfToken()];
+        return $this->app->handle(new Request('POST', '/admin/' . $action, [], null, $form, '', '', false, '127.0.0.1', $files));
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private static function lastFlash(): array
+    {
+        $flash = end($_SESSION['flash']);
+        return [(string) $flash['type'], (string) $flash['message']];
     }
 
     private function adminAuth(): AdminAuth

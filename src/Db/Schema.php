@@ -144,6 +144,16 @@ final class Schema
         $db->run('UPDATE meta SET value = ? WHERE name = ?', [(string) self::VERSION, 'schema_version']);
     }
 
+    /**
+     * Brings the tables of an older installation up to date (after a software update).
+     */
+    public static function upgrade(Database $db): void
+    {
+        if (self::version($db) < self::VERSION) {
+            self::install($db);
+        }
+    }
+
     public static function version(Database $db): int
     {
         return (int) $db->value('SELECT value FROM meta WHERE name = ?', ['schema_version']);
